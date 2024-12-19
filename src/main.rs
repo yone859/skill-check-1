@@ -55,7 +55,7 @@ fn read_config_schema(path: &str) -> io::Result<HashMap<String, String>> {
 
     for line in reader.lines() {
         let line = line?;
-        if line.trim().is_empty() || line.trim().starts_with('#') {
+        if line.trim().is_empty() || line.trim().starts_with('#') || line.trim().starts_with(';'){
             continue; // 空行やコメント行をスキップ
         }
 
@@ -90,7 +90,7 @@ fn read_and_print_file(file_name: &str, schema: &HashMap<String, String>) -> io:
         let line: String = line_result?;
 
         // コメント行や空行をスキップ
-        if line.trim().is_empty() || line.trim().starts_with('#') {
+        if line.trim().is_empty() || line.trim().starts_with('#') || line.trim().starts_with(';'){
             continue;
         }
 
