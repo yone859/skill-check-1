@@ -13,6 +13,20 @@ enum ConfigValue {
 }
 
 fn main() {
+    // スキーマファイルを指定
+    let folder: &str = "input_check/";
+    let file_path: &str = "schema.txt";
+    let path: String = [folder, file_path].concat();
+
+    // スキーマファイルを読み込む
+    let schema: HashMap<String, String> = match read_config_schema(&path) {
+        Ok(schema) => schema,
+        Err(err) => {
+            eprintln!("Error reading schema file: {}", err);
+            process::exit(1);
+        }
+    };
+
     // コマンドライン引数を取得
     let args: Vec<String> = env::args().collect();
 
@@ -26,13 +40,40 @@ fn main() {
     let file_name = &args[1];
 
     // ファイルを開いて内容を読み込む
-    if let Err(e) = read_and_print_file(file_name) {
+    if let Err(e) = read_and_print_file(file_name, &schema) {
         eprintln!("Error: Failed to read file '{}': {}", file_name, e);
         process::exit(1); // エラー時に終了コード 1 で終了
     }
 }
 
-fn read_and_print_file(file_name: &str) -> io::Result<()> {
+// スキーマファイルを読み込んでHashMapで返す。
+fn read_config_schema(path: &str) -> io::Result<HashMap<String, String>> {
+    let mut schema: HashMap<String, String> = HashMap::new();
+
+    let file = File::open(path)?;
+    let reader = io::BufReader::new(file);
+
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() || line.trim().starts_with('#') {
+            continue; // 空行やコメント行をスキップ
+        }
+
+        // 各行を -> で分割し、キーと型を抽出
+        if let Some((key, value_type)) = line.split_once("->") {
+            let key = key.trim().to_string();
+            let value_type = value_type.trim().to_string();
+            schema.insert(key, value_type);
+        } else {
+            eprintln!("Warning: Invalid line format: '{}'", line);
+        }
+    }
+
+    Ok(schema)
+}
+
+// confファイル読み込み
+fn read_and_print_file(file_name: &str, schema: &HashMap<String, String>) -> io::Result<()> {
     let folder = "assets/"; // フォルダ
     // ファイルを指定
     let path = [folder, file_name].concat();
@@ -82,6 +123,16 @@ fn read_and_print_file(file_name: &str) -> io::Result<()> {
                         }
                     }
 
+                    // スキーマファイルのキーが存在するか確認
+                    if schema.contains_key(key) {
+                        let schema_value = schema.get(key)
+                            .map(|v| v.clone())  // Option<&String>をStringに変換
+                            .unwrap_or_else(|| String::from("default_value")); // 存在しない場合はデフォルト値
+
+                        // スキーマファイル通りの入力値かどうかチェック
+                        validate_type(&key, &value.to_string(), &schema_value);
+                    }
+
                     // 最後のセクションを設定
                     current_map.insert(
                         sections.last().unwrap().to_string(),
@@ -94,6 +145,16 @@ fn read_and_print_file(file_name: &str) -> io::Result<()> {
             let key: &str = key.trim();
             let value: &str = value.trim();
 
+            // スキーマファイルのキーが存在するか確認
+            if schema.contains_key(key) {
+                let schema_value = schema.get(&key.to_string())
+                    .map(|v| v.clone())  // Option<&String>をStringに変換
+                    .unwrap_or_else(|| String::from("default_value")); // 存在しない場合はデフォルト値
+
+                // スキーマファイル通りの入力値かどうかチェック
+                validate_type(&key, &value.to_string(), &schema_value);
+            }
+
             config.insert(key.to_string(), ConfigValue::Single(value.to_string()));
         }
     }
@@ -103,4 +164,32 @@ fn read_and_print_file(file_name: &str) -> io::Result<()> {
     println!("{}", json_output);
 
     Ok(())
+}
+
+// スキーマファイルのルールに則っているかチェック
+fn validate_type(key: &str, value: &str, schema_value: &str) {
+    match schema_value {
+        "bool" => {
+            // 値がbool型であることを確認
+            let parsed_value: Result<bool, _> = value.trim().to_lowercase().parse();
+
+            if parsed_value.is_err() {
+                eprintln!("スキーマチェックエラー： {}は{}の形式ではありません。", key, schema_value);
+                std::process::exit(1); // エラーメッセージだけを表示して終了
+            }
+        },
+        "integer" => {
+            // 値が数値型(i32)であることを確認
+            let parsed_value: Result<i32, _> = value.trim().parse();
+            
+            if parsed_value.is_err() {
+                eprintln!("スキーマチェックエラー： {}は{}の形式ではありません。", key, schema_value);
+                std::process::exit(1);
+            }
+        },
+        "String" => {
+            // `value`はすでに`&str`型なのでここでは何もしない。
+        },
+        _ => {},
+    }
 }
